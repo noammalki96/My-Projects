@@ -1,0 +1,315 @@
+---
+title: "A Little Covid-19 Research"
+author: "Noam Malki"
+date: "8.9.2021"
+output: html_document
+---
+
+### Introduction: 
+
+The COVID-19 pandemic didn't disappear from our life. <br>
+It still affects our mundane life. <br><br>
+
+The first outbreak of COVID-19 started in Wuhan, China in November 2019. <br>
+The World Health Organization declared the COVID-19 outbreak a pandemic on 11 March 2020. <br>
+More than a year and a half afterwards, the pandemic is still here. <br> 
+So it's very important to study it. This is what I'm going to do here. <br> 
+
+First of all, I will examine the current state of Coronavirus' confrimed cases, deaths and their relation around the world. <br>
+Secondly, I will examine the correlation between the Coronavirus death rate and some demographic variables. <br> 
+Finally, I will build a prediction model of the Coronavirus death rate and examine its accuracy. <br>
+
+I'll use data from the World Health Organization (WHO), UN and gapminder websites. <br>
+Let's begin.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(caret)
+library(maps)
+library(kableExtra)
+options(scipen = 999)
+```
+
+```{r upload covid19 data, include=FALSE}
+covid <- read.csv(url("https://covid19.who.int/WHO-COVID-19-global-data.csv"))
+colnames(covid)[1] <- "Date" # changing the title of the column
+covid$Date <- as.Date(covid$Date)
+```
+
+```{r upload demographic data, include=FALSE}
+worldpop <- read.csv("WPP2019_TotalPopulationBySex.csv")
+worldpop_2020 <- worldpop %>% filter(Time == 2020, Variant == "No change")
+world_income <- read_csv("income_per_person.csv")
+life_expectancy <- read.csv("life_expectancy_years.csv")
+colnames(life_expectancy)[1] <- "Country"
+world_income_2020 <- world_income %>% select(Country = country, Income = '2020')
+life_expectancy_2020 <- life_expectancy %>% select(Country, Expectancy = X2020)
+```
+
+```{r preprocess, include=FALSE}
+updated_cases <- covid %>% select(Country, New_cases) %>% group_by(Country) %>% summarise(Total_cases = sum(New_cases))
+updated_deaths <- covid %>% select(Country, New_deaths) %>% group_by(Country) %>% summarise(Total_deaths = sum(New_deaths))
+demo_world <- world_income_2020 %>% left_join(life_expectancy_2020) %>% 
+  mutate(Income = ifelse(str_detect(Income, "k"), as.integer(as.numeric(str_remove(Income, "k")) * 1000), as.integer(Income))) %>% drop_na()
+world <- map_data("world") 
+```
+
+```{r recode countries, include=FALSE}
+updated_cases$Country <- recode(str_trim(updated_cases$Country), 
+                            "Bolivia (Plurinational State of)" = "Bolivia", 
+                            "Congo" = "Republic of Congo", "US" = "USA",
+                            "Brunei Darussalam" = "Brunei",
+                            "Cabo Verde" = "Cape Verde",
+                            "Czechia" = "Czech Republic", "Iran (Islamic Republic of)" = "Iran",
+                            "Falkland Islands (Malvinas)" = "Falkland Islands",
+                            "The United Kingdom" = "UK",
+                            "Republic of Korea" = "South Korea",
+                            "Democratic People's Republic of Korea" = "North Korea",
+                            "Kosovo[1]" = "Kosovo", "Russian Federation" = "Russia", "Syrian Arab Republic" = "Syria",
+                            "Lao People's Democratic Republic" = "Laos",
+                            "Republic of Moldova" = "Moldova",
+                            "North Macedonia" = "Macedonia",
+                            "occupied Palestinian territory, including east Jerusalem" = "Palestine",
+                            "Eswatini" = "Swaziland",
+                            "United States of America" = "USA",  "Venezuela (Bolivarian Republic of)" = "Venezuela", 
+                            "Viet Nam" = "Vietnam",
+                            "Micronesia (Federated States of)" = "Micronesia", 
+                            "United Republic of Tanzania" = "Tanzania",
+                            "Saint Barthֳ©lemy" = "Saint Barthelemy",
+                            "Cֳ´te dג€™Ivoire" = "Ivory Coast",
+                            "Curaֳ§ao" = "Curacao",
+                            "Rֳ©union" = "Reunion")
+
+
+
+updated_deaths$Country <- recode(str_trim(updated_deaths$Country), 
+                            "Bolivia (Plurinational State of)" = "Bolivia", 
+                            "Congo" = "Republic of Congo", "US" = "USA",
+                            "Brunei Darussalam" = "Brunei",
+                            "Cabo Verde" = "Cape Verde",
+                            "Czechia" = "Czech Republic", "Iran (Islamic Republic of)" = "Iran",
+                            "Falkland Islands (Malvinas)" = "Falkland Islands",
+                            "The United Kingdom" = "UK",
+                            "Republic of Korea" = "South Korea",
+                            "Democratic People's Republic of Korea" = "North Korea",
+                            "Kosovo[1]" = "Kosovo", "Russian Federation" = "Russia", "Syrian Arab Republic" = "Syria",
+                            "Lao People's Democratic Republic" = "Laos",
+                            "Republic of Moldova" = "Moldova",
+                            "North Macedonia" = "Macedonia",
+                            "occupied Palestinian territory, including east Jerusalem" = "Palestine",
+                            "Eswatini" = "Swaziland",
+                            "United States of America" = "USA",  "Venezuela (Bolivarian Republic of)" = "Venezuela", 
+                            "Viet Nam" = "Vietnam",
+                            "Micronesia (Federated States of)" = "Micronesia", 
+                            "United Republic of Tanzania" = "Tanzania",
+                            "Saint Barthֳ©lemy" = "Saint Barthelemy",
+                            "Cֳ´te dג€™Ivoire" = "Ivory Coast",
+                            "Curaֳ§ao" = "Curacao",
+                            "Rֳ©union" = "Reunion")
+
+
+
+
+
+worldpop_2020$Location <- recode(worldpop_2020$Location,
+                                 "Bolivia (Plurinational State of)" = "Bolivia",
+                                 "Brunei Darussalam" = "Brunei",
+                                 "Congo" = "Republic of Congo",
+                                 "Cabo Verde" = "Cape Verde",
+                                 "Eswatini" = "Swaziland",
+                                 "Falkland Islands (Malvinas)" = "Falkland Islands",
+                                 "Czechia" = "Czech Republic", "Iran (Islamic Republic of)" = "Iran",
+                                 "Lao People's Democratic Republic" = "Laos",
+                                 "North Macedonia" = "Macedonia",
+                                 "State of Palestine" = "Palestine",
+                                 "United Kingdom" = "UK",
+                                 "Republic of Korea" = "South Korea",
+                                 "Republic of Moldova" = "Moldova",
+                                 "Russian Federation" = "Russia", "Syrian Arab Republic" = "Syria",
+                                 "Eswatini" = "Swaziland",
+                                 "United States of America" = "USA",  "Venezuela (Bolivarian Republic of)" = "Venezuela", 
+                                 "Viet Nam" = "Vietnam",
+                                 "United Republic of Tanzania" = "Tanzania",
+                                 "Venezuela (Bolivarian Republic of)" = "Venezuela",
+                                 "Wallis and Futuna Islands" = "Wallis and Futuna",
+                                 "Saint Martin (French part)" = "Saint Martin",
+                                 "Sint Maarten (Dutch part)" = "Sint Maarten",
+                                 "Saint Barthֳ©lemy" = "Saint Barthelemy",
+                                 "Rֳ©union" = "Reunion",
+                                 "Curaֳ§ao" = "Curacao",
+                                 "Cֳ´te d'Ivoire" = "Ivory Coast")
+
+
+demo_world$Country <- recode(str_trim(demo_world$Country),
+                             "Cote d'Ivoire" = "Ivory Coast",
+                             "Congo, Rep." = "Republic of Congo",
+                             "Congo, Dem. Rep." = "Democratic Republic of the Congo",
+                             "Eswatini" = "Swaziland",
+                             "Kyrgyz Republic" = "Kyrgyzstan",
+                             "Lao" = "Laos",
+                             "North Macedonia" = "Macedonia",
+                             "St. Lucia" = "Saint Lucia",
+                             "St. Vincent and the Grenadines" = "Saint Vincent and the Grenadines",
+                             "Slovak Republic" = "Slovakia",
+                             "United Kingdom" = "UK",
+                             "United States" = "USA")
+```
+
+```{r warning=FALSE, include=FALSE}
+world_cases <- world %>% select(Country = region, long, lat, group, order, subregion) %>% left_join(updated_cases) %>% 
+  mutate(Cases_per_mil = Total_cases / (10^6))
+
+world_deaths <- world %>% select(Country = region, long, lat, group, order, subregion) %>% left_join(updated_deaths) %>% 
+  mutate(Deaths_per_100000 = Total_deaths / 100000)
+```
+
+### Confirmed cases, deaths and its relation:
+
+The following plot shows the numbers of COVID-19 confrimed cases per million around the world. <br>
+
+```{r map graph 1, echo=FALSE}
+ggplot(world_cases, aes( x = long, y = lat, group = group )) +
+  geom_polygon(aes(fill = Cases_per_mil)) +
+  scale_fill_gradient2(midpoint = 20, low = "blue", high = "red", mid = "purple", limit = c(0, 40), name = "Cases per million") +
+  labs(title = "COVID-19 confirmed cases per million around the world") + 
+  theme_minimal() +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), 
+        axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+As you can see USA, India and Brazil has the most counfirmed cases around the world. <br>
+
+The next plot shows the numbers of COVID-19 deaths per 100 thounsands around the world.
+
+```{r map graph 2, echo=FALSE}
+ggplot(world_deaths, aes( x = long, y = lat, group = group )) +
+  geom_polygon(aes(fill = Deaths_per_100000)) + 
+  scale_fill_gradient2(midpoint = 4, low = "blue", high = "red", mid = "purple", limit = c(0, 8), name = "Deaths per \n100 thousands") + 
+  labs(title = "COVID-19 deaths per 100 thousands around the world") + 
+  theme_minimal() +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), 
+        axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+As you can see USA, India and Brazil also have the most deaths around the world. <br><br>
+
+Denote the Coronavirus death rate as: 
+$$\frac{\mathsf{Deaths}}{\mathsf{Cases}}$$
+
+when `Cases` are the total confirmed cases and `Deaths` are the total deaths. <br>
+Considering the plots above, we can assume that the Brazil, India and USA will some from the worst rates. <br>
+
+The following plot will check our assumption. 
+
+```{r bar plot, echo=FALSE, message=FALSE}
+updated_cases %>% left_join(updated_deaths) %>% mutate(Rate = Total_deaths / Total_cases) %>% drop_na() %>% arrange(desc(Rate)) %>% head(10) %>% 
+  ggplot(aes(reorder(Country, Rate), Rate)) + 
+  geom_bar(stat = "identity", fill = "red", color = "black") +
+  coord_cartesian(ylim = c(0, 0.20)) + labs(x = "Country", title = "Top 10 countries with the Coronavirus death rate") +
+   theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+As you see, our hypothesis was wrong: the 3 afromentioned countries didn't make it to the top 10. <br>
+How can it be? maybe there are some variables that affect the rate.
+The next part will examine the correlation between demographic data and the rate.
+
+### Demographic data:
+
+I chose to focus on the demographic variables: population density, life expectancy and income in dollars.
+High life expectancy can affect the rate because the coronavirus disease affect more the elderly.
+High population density can affect the rate because there is higher possibility to get infected in dense areas.
+Low income can influence the rate because maybe the sanitation is bad in low-income areas.
+Some of the countries don't have al least one of this variables so I dropped them (in the end, we have 179 observations in the dataset).  
+
+```{r add demographic data, include=FALSE}
+corona <- updated_cases %>% left_join(updated_deaths) %>% 
+  mutate(Rate = Total_deaths / Total_cases, Country = recode(str_trim(Country), 
+                                                             "Northern Mariana Islands (Commonwealth of the)" = "Northern Mariana Islands")) %>% 
+  drop_na()  
+  
+special_countries <- corona %>% filter(Country %in% c("Bonaire", "Saba", "Sint Eustatius")) %>% 
+  summarise(Total_cases = sum(Total_cases), Total_deaths = sum(Total_deaths)) %>% 
+  mutate(Rate = Total_deaths / Total_cases, Country = "Bonaire, Sint Eustatius and Saba") %>% select(Country, Total_cases, Total_deaths, Rate)
+
+
+worldpop_density_2020 <- worldpop_2020 %>% select(Country = Location, PopDensity)
+ 
+demographic_corona <- corona %>% full_join(special_countries) %>% filter(!Country %in% c("Bonaire", "Saba", "Sint Eustatius")) %>% 
+  left_join(worldpop_density_2020) %>% left_join(demo_world) %>% drop_na()  
+  
+
+demo_mat <- as.matrix(demographic_corona[,-1])
+row.names(demo_mat) <- demographic_corona$Country
+demographic_corona <- data.frame(demo_mat) %>%  select(Rate, Total_cases, PopDensity, Income, Expectancy)
+```
+
+The following table shows the correlations between the afromentioned variables, the total cases and the rate.
+
+```{r correlation, echo=FALSE}
+data.frame(round(cor(demographic_corona), 3)) %>% kbl() %>% kable_paper("striped", full_width = F)
+```
+
+As you can see, there are low correlations between the rate and variables above. <br>
+Only the cases have positive correlation with the rate (that's weird), but the low income influences the rate as we suspeced.
+
+### Prediction model:
+
+Firstly I split the data to a training set, which contains 70% of the data, and test set the contains the remained 30%. 
+
+```{r data split, include=FALSE}
+set.seed(123)
+idx <- createDataPartition(demographic_corona$Rate, p = 0.7, list = F)
+
+trainSet <- demographic_corona[as.vector(idx),]
+testSet <- demographic_corona[-as.vector(idx),]
+```
+
+Secondly, I chose to use random forest model for predicting the death rate. <br>
+The hyperparameter in random forest is how many variables the algorithm will use. <br>
+I chose to give it a range of parameters amount from 2 to 5 in order to find the optimized parameters amount (the chosen amount is 1). <br>
+Also I used reapeted 10-fold cross validation for hyperparameter optimization. <br>
+Moreover I decided to keep the number of trees in the random forest on default (500) for better prediction estimation.
+
+```{r train model, include=FALSE}
+set.seed(954)
+tuneGrid <- data.frame(mtry = 1:3)
+ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 10)
+
+rf <- train(Rate ~ ., data = trainSet, method = "rf", trControl = ctrl, tuneGrid = tuneGrid)
+```
+
+The following table compare the train and test errors with two different measures (RMSE and MAE). 
+
+```{r rmse and mae, echo=FALSE}
+tr_rmse <- round(Metrics::rmse(trainSet$Rate, predict(rf$finalModel, trainSet)), 3)
+tr_mae <- round(Metrics::mae(trainSet$Rate, predict(rf$finalModel, trainSet)), 3)
+te_rmse <- round(Metrics::rmse(testSet$Rate, predict(rf$finalModel, testSet)), 3)
+te_mae <- round(Metrics::mae(testSet$Rate, predict(rf$finalModel, testSet)), 3)
+
+precision_df <- data.frame(matrix(c(tr_rmse, tr_mae, te_rmse, te_mae), ncol = 2, nrow = 2), row.names = c("RMSE", "MAE")) 
+colnames(precision_df) <- c("Train", "Test")
+
+
+precision_df %>% kbl() %>% kable_paper("striped", full_width = F)
+```
+
+All the error are low, so we succeeded to predict the rate.
+But the low number of variables and observations might affect our predictions.
+Future researches should consider more variables and find more reliable demographic datasets.
+
+### Refrence list:
+
+1. [Timeline of the COVID-19 pandemic, Wikipedia][R1]
+2. [UN website][R2]
+3. [Gapminder website][R3]
+4. [WHO website, Wikipedia][R4]
+
+
+[R1]: https://en.wikipedia.org/wiki/Timeline_of_the_COVID-19_pandemic
+[R2]: https://population.un.org/wpp/Download/Standard/CSV/
+[R3]: https://www.gapminder.org/data/
+[R4]: https://covid19.who.int/
