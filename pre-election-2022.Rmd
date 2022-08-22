@@ -1,0 +1,651 @@
+---
+title: "Pre Election 2022"
+author: "Noam Malki"
+date: '23.8.22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(plotly)
+library(kableExtra)
+options(scipen = 8)
+```
+
+## Abstract
+
+This is the time in Israel when the all political parties are getting ready for another elections. Like we didn't have enough in the last 3 years, just kidding.
+
+One of the most important questions is **which party will "pass" the elections threshold**? After that the most important subject in the Israeli Election is **the amount of mandates that party got**. This is important in order to assemble a coalition.
+
+Using explanatory data analysis and clustering, I explored the data of the last two elections (March 2020 and March 2021) in order to get some insight about the participating parties. Afterwards, I tried predict the vote percentage for each party in the last elections using PCA and linear regression. Finally I concluded with the number of mandates each party gets. In addition, I discussed some interesting discoveries and some limitations of this analysis in the end.
+
+```{r import data, include=FALSE}
+elections.2021 <- read.csv("votes per city 2021.csv")
+elections.2020 <- read.csv("votes per city 2020.csv")
+
+row.names(elections.2021) <- elections.2021$שם.ישוב
+row.names(elections.2020) <- elections.2020$שם.ישוב
+
+elections.2021 <- elections.2021[,-2] %>% filter(row.names(elections.2021) != 'מעטפות חיצוניות')
+elections.2020 <- elections.2020[,-2] %>% filter(row.names(elections.2020) != 'מעטפות חיצוניות')
+```
+
+## Background
+
+Like many democracies, elections in Israel occur every 4 years. In recent 3 years, there is a political crisis in Israel. Meaning, there have been various unsuccessful attempts to assemble a steady government for the last 3 years.
+
+The last attempt was in March 2021, when Naftali Bennet and Yair Lapid became the prime minister and and the "alternative prime minister" respectively. That attempt succeeded at first, but failed recently. In other words: more elections. This is great (not).
+
+The question is what's next? Which party (and which not) will get elected this time? In this essay, I will try to answer the last question.
+
+In order to answer this question, I will use data of the last two elections from the Central Elections Committee website. The data sets contain votes to each participating party in each city in Israel and more details like the numbers of voters in each city, number of invalid voters etc.
+
+Links to the data will be provided in the reference list.
+
+## Exploratory Data Analysis
+
+From the start, we have problem analyzing the data: there are too many variables in the data sets. At first, I focused on votes for "elected parties" in each city. Meaning I focused on the votes for the parties which "passed" the election threshold of $3.25\%$. I did it with the two data sets.
+
+```{r compute elected parties, include=FALSE}
+votes_percent_2020 <- colSums(elections.2020[,7:36]) / sum(colSums(elections.2020[,7:36])) 
+votes_percent_2021 <- colSums(elections.2021[,7:45]) / sum(colSums(elections.2021[,7:45])) 
+
+elected_2020 <- votes_percent_2020[votes_percent_2020 >= 0.0325]
+elected_2021 <- votes_percent_2021[votes_percent_2021 >= 0.0325]
+
+votes.elected.2021 <- elections.2021[, names(elected_2021)]
+votes.elected.2020 <- elections.2020[, names(elected_2020)]
+```
+
+The remaining data sets contain 8-13 variables each. There are several ways to analyze these amounts of data. I used PCA in order to analyze the data. In order to do PCA on the parties, I made a transpose the data matrix and then applied PCA on it. In addition, I scaled the data for easy-to-analyze results.
+
+```{r compute pca, include=FALSE}
+pca2021 <- prcomp(t(votes.elected.2021), scale. = T) 
+pca2020 <- prcomp(t(votes.elected.2020), scale. = T) 
+```
+
+The following graph shows the PCA visualization of elected parties in the 2021 elections. I also used the "K-Means" algorithm for clear distinction between the parties.
+
+```{r pca 2021 visualization, echo=FALSE, fig.height=4, fig.width=6, warning=FALSE}
+set.seed(124)
+
+party_names_2021 <- c('העבודה', 'ימינה', 'יהדות התודה', 'המשותפת', 'הציונות הדתית', 'כחול לבן', 
+  'ישראל ביתנו', 'הליכוד', 'מרצ', 'רע"ם', 'יש עתיד', 'ש"ס',
+  'תקווה חדשה')
+
+parties_data_2021 <- data.frame(pca2021$x[,1:2]) %>% mutate(party = party_names_2021, 
+                                       cluster=factor(kmeans(pca2021$x, centers = 3)$cluster)) 
+
+
+
+fig <- plot_ly(data = parties_data_2021, x = ~PC1, y = ~PC2, color = ~cluster, colors = "Set1", marker = list(size = 10))
+fig <- fig %>% layout(title = "Elections 2021 - PCA Visualization",
+         yaxis = list(zeroline = FALSE),
+         xaxis = list(zeroline = FALSE))
+
+fig <- fig %>% add_markers(text = ~party,
+    color = ~cluster, size = I(8), hoverinfo = "text")
+
+fig
+```
+
+As you can see, there are 3 distinctive groups of parties:
+
+1.  Yesh Atid (יש עתיד), Blue and White (כחול לבן), Labor (העבודה) and Meretz (מרצ).
+
+2.  Ra'am (רע"ם), Joint List (הרשימה המשותפת), New Hope (תקווה חדשה), Shas (ש"ס), Yamina (ימינה), Yisrael Beiteinu (ישראל ביתנו), Religious Zionist (הציונות הדתית) and UTJ (יהדות התורה).
+
+3.  Likud (הליכוד).
+
+This distinction between the groups can tell us about the meaning of the Y-axis (PC2). With the distinction, we can assume that PC2 describes the degree of opposition to Benjamin Netanyahu among the parties' voters. The UTJ party might be an outlier, but it's good to remember that majority of their voters (mostly Ashkenazi ultra-Orthodox jews) doesn't really care about important political issues.
+
+Looking on the X-axis (PC1) in the graph, we can assume that its meaning is how much the parties' voters are homogeneous.
+
+The following graph shows the PCA visualization of elected parties in the 2020 elections. Once again, I used the "K-Means" algorithm for clear distinction between the parties.
+
+```{r pca 2020 visualization, echo=FALSE, warning=FALSE}
+set.seed(165)
+party_names_2020 <- c('העבודה גשר מרצ', 'יהדות התורה', 'המשותפת', 'ימינה', 'ישראל ביתנו', 'הליכוד', 'כחול לבן', 'ש"ס')
+
+
+parties_data_2020 <- data.frame(pca2020$x[,1:2]) %>% mutate(party = party_names_2020, 
+                                       cluster=factor(kmeans(pca2020$x, centers = 3)$cluster))
+
+fig <- plot_ly(data = parties_data_2020, x = ~PC1, y = ~PC2, color = ~cluster, colors = "Set1", marker = list(size = 10))
+fig <- fig %>% layout(title = "Elections 2020 - PCA Visualization",
+         yaxis = list(zeroline = FALSE),
+         xaxis = list(zeroline = FALSE))
+
+fig <- fig %>% add_markers(text = ~party,
+    color = ~cluster, size = I(8), hoverinfo = "text")
+
+fig
+```
+
+As you can see, the Likud and "Blue and White" parties got their own separate group. In addition, the rest of the parties got the third group.
+
+This distinction between the groups can tell us about the meaning of the X-axis (PC1). It seems that PC1 describes how idealistic the party are or the extent of ideological premise of the party. The Likud party seems like an outlier, but it's good to remember that the party didn't express "pure ideology" recently. The Likud party members have some opinions on political issues, but they "attack the opposition" most of the time. The Blue and White might seem like an outlier, but it's good to remember that party members didn't express their opinions on political issues clearly at that time.
+
+Looking on the Y-axis (PC2) in the graph, we can assume that its meaning is the degree of support in Benjamin Netanyahu within the party.
+
+## What's next?
+
+As stated before, Israel are getting ready for another elections. Meaning we once again going to vote and who knows what gonna happen. According to our previous experience, we might find ourselves in another loop of elections (one after another).
+
+So, I want to answer the question: How much votes will each party get with regard to the others?
+
+## Methodology
+
+In order to find an answer for the aforementioned question, I used data of the last two elections from the Central Elections Committee website as stated earlier. In addition, I define the vote rate for each party in election 2021 as the response variable.
+
+Denote $r_{i}$ as the vote rate of party $i$. $r_{i}$ is define by this formula: $$ r_{i} = \frac{\mathsf{all \thinspace the \thinspace valid \thinspace votes \thinspace party} \thinspace \thinspace i}{\mathsf{total \thinspace  valid \thinspace votes} \thinspace} $$
+
+However the previous problem still remains: there are too many variables in the data sets. Looking back, we saw that PCA is powerful tool for analyzing a data set with many variables, so we used it.
+
+For prediction of $r_{i}$, I used linear regression model because they much easier to compare to one another in regard of other models.
+
+## Predictive Analysis
+
+At First, we will build a model data using PCA. Afterwards we will some linear regression models. At last we will choose the best model(s) using the adjusted $R^2$ measurement.
+
+### PCA
+
+Firstly I did PCA for all votes of all the parties in elections 2021. It's worth noting that I scaled the votes before that.
+
+Secondly I calculate the explained variance of the aforementioned PCA. Note that there are 39 principal components, so we have to use only a subset of them.
+
+```{r pca for all parties in elections 2021, include=FALSE}
+pca_all_2021 <- prcomp(t(elections.2021[,7:45]), scale. = T)
+var_explained_all_2021 = pca_all_2021$sdev^2 / sum(pca_all_2021$sdev^2)
+```
+
+The following graph is a scree plot which shows how much variance each principal adds to the total.
+
+```{r scree plot, echo=FALSE, fig.height=3, fig.width=5}
+qplot(c(1:39), var_explained_all_2021) + 
+  geom_line() +
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot for Elections 2021") +
+  ylim(0, 1)
+```
+
+As you can see, after the tenth principal the line starts to converge. Meaning, at the most 10 principal components save the majority of the data.
+
+The following table shows the cumulative explained variance for the 10 first components:
+
+```{r explained variance table, echo=FALSE}
+df_var_exp_2021 <- data.frame(PC_Number = 1:39, Cumulative_Explained_Variance = round(cumsum(var_explained_all_2021),3))
+df_var_exp_2021[1:10,] %>%  kbl(align = "c", col.names = c("PC Number", "Cumulative Variance")) %>%
+  kable_styling(bootstrap_options = "bordered",
+                full_width = FALSE)
+```
+
+As you can see, the tenth component added only $1\%$ for the cumulative explained variance. So, 9 PCs (with $97.2\%$ explained variance at total) should be enough for us.
+
+### Linear Regression
+
+As stated earlier, I will use linear regression model to predict the vote rate.
+
+I will use the 2021 elections' PCA scores as variables. It's worth noting that this data has 39 observations (one for each party), so it should be enough for a linear regression (it's a rule of thumb).
+
+#### Initial Model
+
+For a start, I fitted the model using all the variables. The summary of the model is as follows:
+
+```{r initial model, echo=FALSE}
+model_data_2021 <- data.frame(pca_all_2021$x[,1:9]) %>% mutate(y = votes_percent_2021)
+mod1 <- lm(y~., data = model_data_2021)
+
+summary(mod1)
+```
+
+As you can see the Adjusted $R^2$ is 0.9923, which means that the model explains the variance very well ($99.23\%$). On the other hand, PC4 didn't turned out significant.
+
+The model is good, but maybe we can do better. We can remove the insignificant variable or try to find an interaction between two variables (The are more options that we will discuss later). Let's remove it from the model and see how it influences the model (it makes sense because there is no interpretation to variables):
+
+```{r initial sub model, echo=FALSE}
+mod2 <- lm(y~PC1+PC2+PC3+PC5+PC6+PC7+PC8+PC9, data = model_data_2021)
+
+summary(mod2)
+```
+
+As you can see the adjusted $R^2$ has gone up to 0.9925, which is excellent! In addition, the removal of PC4 from the model didn't affect the other variables.
+
+In comparison to the previous model, this sub model explains the response variable much better!
+
+Let's evaluate this sub model's errors. I'll use MSE, RMSE and MAE measurements.
+
+```{r sub model evaluation, echo=FALSE}
+print(paste("The MSE of the model is", round(Metrics::mse(model_data_2021$y, predict(mod2)), 5))) 
+print(paste("The RMSE of the model is", round(Metrics::rmse(model_data_2021$y, predict(mod2)), 5))) 
+print(paste("The MAE of the model is", round(Metrics::mae(model_data_2021$y, predict(mod2)), 5))) 
+```
+
+All the aforementioned measurements are very low, which means the error of the model is very low!
+
+In other words the initial sub model predicts $r_i$ very well.
+
+#### Advanced Models
+
+Next, I fitted a linear regression model using the 2021 elections' PCA scores and the 2020 elections' PCA scores of the elected parties. I took the 8 PCA scores from the initial model and combine them with the the first 8 principal components of election 2020. The Idea behind this combination is that the 2020 elections influenced the 2021 elections.
+
+There are some parties which split prior the elections like "Blue and White" and "Yesh Atid", "New Hope" and "Likud" etc. This is can be problem because we can't merge the 2020 data with the 2021 data. In order to overcome it, I did the following:
+
+1.  Duplicated the rows of relevant parties.
+
+2.  Attributed the duplicates to the new parties in elections 2021.
+
+3.  Took the average of the old and new rows.
+
+In the end, we got a new data set with 39 observations and 8 explanatory variables.
+
+```{r data prep for another model, echo=FALSE}
+
+m <- rbind(pca2020$x, pca2020$x[c(1,3,4,6,7),])
+
+row.names(m)[c(4,9:13)] <- c("ט","מרצ", "עם", "ב", "ת", "כן")
+m <- m[order(row.names(m)), ]
+row.names(m)[4] <- "ט"
+row.names(m)[9:13] <- c("מרצ", "עם", "ב", "ת", "כן")
+
+prev_dat <- data.frame(m) %>% mutate(party = row.names(m))
+
+
+
+colnames(prev_dat)[1:8] <- paste("x", 1:8, sep = "")
+data2021 <- model_data_2021[,-c(4,10)]
+data2021 <- data2021 %>% mutate(party = row.names(data2021))
+colnames(data2021)[1:8] <- paste("x", 1:8, sep = "")
+
+total_model_data <- rbind(data2021, prev_dat) %>% group_by(party) %>% summarise_all(mean) %>% 
+  mutate(y = votes_percent_2021) %>% select(-party)
+
+```
+
+Firstly, I fitted a model with all the variables. The summary of the model is as follows:
+
+```{r full model, echo=FALSE}
+mod3 <- lm(y~., data = total_model_data)
+summary(mod3)
+
+```
+
+As you can see the adjusted $R^2$ is 0.9503, which means that the model explains the variance very well ($95.03\%$). On the other hand, PC6 (`x6`) and PC8 (`x8`) didn't turned out significant.
+
+In order to improve it, we can remove the aforementioned variables or to remove outliers. Because it's small data set, removing outliers is not an option. So we will remove the aforementioned variables. This raises the question: Which one do we remove? Or should we remove both of them? I considered all the options as follows:
+
+[Sub model without PC8]{.underline}
+
+```{r sub model 1, echo=FALSE}
+mod3.1 <- lm(y~x1+x2+x3+x4+x5+x6+x7, data = total_model_data)
+summary(mod3.1)
+```
+
+[Sub model without PC6]{.underline}
+
+```{r sub model 2, echo=FALSE}
+mod3.2 <- lm(y~x1+x2+x3+x4+x5+x7+x8, data = total_model_data)
+summary(mod3.2)
+```
+
+[Sub model without PC6 and PC8]{.underline}
+
+```{r sub model 3, echo=FALSE}
+mod3.3 <- lm(y~x1+x2+x3+x4+x5+x7, data = total_model_data)
+summary(mod3.3)
+```
+
+Only the model without PC6 and the model without both of them has improved regarding their adjusted $R^2$.
+
+Let's evaluate this sub models' errors:
+
+```{r evalutions of models, echo=FALSE}
+full_eval <- round(c(Metrics::mse(total_model_data$y, predict(mod3)),
+                     Metrics::rmse(total_model_data$y, predict(mod3)),
+                     Metrics::mae(total_model_data$y, predict(mod3))), 5)
+
+
+sub_eval1 <- round(c(Metrics::mse(total_model_data$y, predict(mod3.1)),
+                     Metrics::rmse(total_model_data$y, predict(mod3.1)),
+                     Metrics::mae(total_model_data$y, predict(mod3.1))), 5)
+
+
+sub_eval2 <- round(c(Metrics::mse(total_model_data$y, predict(mod3.2)),
+                     Metrics::rmse(total_model_data$y, predict(mod3.2)),
+                     Metrics::mae(total_model_data$y, predict(mod3.2))), 5)
+
+sub_eval3 <- round(c(Metrics::mse(total_model_data$y, predict(mod3.3)),
+                     Metrics::rmse(total_model_data$y, predict(mod3.3)),
+                     Metrics::mae(total_model_data$y, predict(mod3.3))), 5)
+
+
+eval_df <- data.frame(full = full_eval, sub1 = sub_eval1, sub2 = sub_eval2, sub3 = sub_eval3)
+row.names(eval_df) <- c("MSE", "RMSE", "MAE")
+
+eval_df %>%  kbl(align = "c", col.names = c("Full model", "Sub model without PC8", 
+                                             "Sub model without PC6", "Sub model without PC6 and PC8")) %>%
+  kable_styling(bootstrap_options = "bordered",
+                full_width = FALSE)
+```
+
+Despite the improvement in the adjusted $R^2$, the second and the third sub models preform worse than the full model in regard of the error measurements. Although the MSE is equals for all models, the RMSE and MAE are higher for all sub models. Meaning the full model is preferable. The only sub model that I could consider is without PC6, because its RMSE and MAE are the closest to the measurements of the full model. Because of that, I considered it and decided to not reject it.
+
+### Predictions
+
+So, we have 3 validated models: the initial sub model, the advanced full model and its sub model without PC6. Now we want to predict $r_i$ and compare the predictions between the models, but we have a problem: we don't have new data to predict it. We used the relevant data (2021 elections data) to build our model. If we use it to predict $r_i$, we might have an overfitting in our results. I could split the data for training set and testing set, but because we have datasets with low number of observations I abandoned that idea.
+
+In order to overcome this problem, I used the "eligible votes" data. In each city in Israel, there are "eligible voters". These are the people who have the suffrage in the elections. Not all of them will vote (of course), but they have the right to vote. The "eligible votes" data is the votes party each party if every eligible voter would actually vote.
+
+This is how I derived this data from the existing data set:
+
+Denote $v_{ij}$ as the valid votes in city $i$ for party $j$, so $\sum_{j} v_{ij}$ will give us the total votes in city $i$. Denote $p_{ij}$ as the the vote rate of party $j$ in city $i$. We can derive $p_{ij}$ as follows: $$p_{ij} = \frac{v_{ij}}{\sum_j v_{ij}}$$ Denote $b_i$ as the number of "eligible voters" in city $i$. In addition, denote $u_{ij}$ as the valid votes in city $i$ for party $j$ if every eligible voter would actually vote. Therefore we can derive $u_{ij}$ as follows: 
+$$u_{ij} = b_i \cdot p_{ij} = b_i \cdot \frac{v_{ij}}{\sum_j v_{ij}} \quad \forall{i,j}$$
+
+After I made a new data set of votes according to aforementioned equations, I rounded the votes in order to convert them to integers.
+One question still remains: Is this new data set different and realistic in the same time?
+
+Let's compare between the party turnouts for each data set:
+
+```{r turnout, echo=FALSE, warning=FALSE}
+bzb_votes <- (elections.2021[,7:45] / rowSums(elections.2021[,7:45]))*elections.2021[,"בזב"] 
+bzb_rate <- data.frame(bzb_rate = colSums(round(bzb_votes)) / sum(colSums(round(bzb_votes))))  
+rates_df <- merge(data.frame(original_rate = elected_2021), bzb_rate, by = 0) %>% arrange(desc(original_rate)) 
+
+colnames(rates_df)[2:3] <- c('Real', '"Eligible votes"') 
+turnout_2021 <- c('הליכוד', 'יש עתיד', 'ש"ס', 'כחול לבן', 'יהודת התורה', 'העבודה', 'ימינה',
+  'ישראל ביתנו', 'המשותפת', 'הציונות הדתית', 'תקווה חדשה', 'מרצ', 'רע"ם')
+
+
+stack(rates_df) %>% mutate(party = factor(rep(turnout_2021, 2), levels = turnout_2021)) %>% 
+  ggplot(aes(party, values, fill = ind)) + geom_bar(stat = "identity", position = "dodge") + 
+  labs(title = "Elections 2021 - Party Turnout", x = "", y = "Votes percentage", fill = "Turnout type") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+As you can see, there are some different between the turnouts: Yisrael Beiteinu, the Joint List and Ra'am would get more votes if all the eligible voter actually votes. There difference in in Yisrael Beiteinu's turnout somewhat surprising. We can assume that it's due to complacent in the elections. However, the differences in Ra'am and the Joint List are expected because of the low vote percents in the Arab sector.
+
+So, the "eligible votes" data set is realistic and different in the same time. Therefore we will use it to predict $r_i$. Similar to the "real votes" data set, I did PCA to the data set.
+
+The following scree plot describes the explained variance of the aforementioned PCA:
+
+```{r bzb pca, echo=FALSE, fig.height=3.5, fig.width=5.5}
+
+pca_bzb <- prcomp(t(round(bzb_votes)), scale. = T)
+
+var_bzb <- pca_bzb$sdev^2 / sum(pca_bzb$sdev^2)
+
+
+qplot(c(1:39), var_bzb) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0, 1)
+```
+
+It seems that after the tenth principal the line starts to converge. Because all our models consists of 8 variables at most, it is important to check whether the first 8 components have a lot of explained variance. Also, because the initial sub model has the ninth PC as a variable, we should check this component's variance
+
+The following table shows the cumulative explained variance for the 9 first components:
+
+```{r explained variance table 2, echo=FALSE}
+data.frame(PC_Number = 1:9, Explained_Variance = round(var_bzb, 3)[1:9],
+           Cumulative_Explained_Variance = round(cumsum(var_bzb)[1:9],3)) %>% 
+  kbl(align = "c", col.names = c("PC Number", "Variance", "Cumulative Variance")) %>%
+  kable_styling(bootstrap_options = "bordered",
+                full_width = FALSE)
+```
+
+As you can see, we have $96\%$ cumulative explained variance with 8 PCs at most (this is very good). Without PC4, we have $90\%$ cumulative explained variance (still it's very good). Remind you that PC4 has been removed as variable from the initial model. The next thing to do is making the predictions of $r_i$.
+
+After I made the prediction, I encountered a problem: some of the $r_i$ turned out negative. Negative predictions aren't making sense (vote rate should be positive), so I transformed it by applying the absolute value function. If we denote $\hat{y_i}$ and $\hat{r_i}$ as the regression prediction and the estimated vote rate (respectively) for party $i$, we get: $$\hat{r_i} = \left| \hat{y_i} \right|$$
+
+I will check the error measurements for $\hat{y_i}$ in order to determine whether the transformation was justified
+
+The following tables contain evaluation the models performance using the aforementioned error measurements:
+
+```{r initial sub model evaluation, echo=FALSE}
+new_df1 <- data.frame(pca_bzb$x[, 1:8]) 
+new_df2 <- data.frame(pca_bzb$x[, 1:9]) 
+
+colnames(new_df1) <- paste("x", 1:8, sep = "")
+
+
+model_eval <- function(model, df) {
+  bzb_mse <- Metrics::mse(colSums(bzb_votes) / sum(colSums(bzb_votes)), predict(model, newdata = df))
+  bzb_rmse <- Metrics::rmse(colSums(bzb_votes) / sum(colSums(bzb_votes)), predict(model, newdata = df))
+  bzb_mae <- Metrics::mae(colSums(bzb_votes) / sum(colSums(bzb_votes)), predict(model, newdata = df))
+  bzb_abs_mse <- Metrics::mse(colSums(bzb_votes) / sum(colSums(bzb_votes)), abs(predict(model, newdata = df)))
+  bzb_abs_rmse <- Metrics::rmse(colSums(bzb_votes) / sum(colSums(bzb_votes)), abs(predict(model, newdata = df)))
+  bzb_abs_mae <- Metrics::mae(colSums(bzb_votes) / sum(colSums(bzb_votes)),  abs(predict(model, newdata = df)))
+
+  bzb_model_eval <- data.frame(pred = round(c(bzb_mse, bzb_rmse, bzb_mae), 5), 
+                             abs_pred = round(c(bzb_abs_mse, bzb_abs_rmse, bzb_abs_mae), 5))
+  row.names(bzb_model_eval) <- c("MSE", "RMSE", "MAE")
+  return(bzb_model_eval)
+} 
+
+model_eval(mod2, new_df2) %>% kbl(caption = "Initial sub model evaluation:", 
+                                  align = "c", col.names = c("Original Predictions", "Transfromed Predictions")) %>%
+  kable_styling(bootstrap_options = "bordered",
+                full_width = FALSE)
+
+```
+
+```{r advanced model evaluation, echo=FALSE}
+
+model_eval(mod3, new_df1) %>% kbl(caption = "Advanced model evaluation:", 
+                                  align = "c", col.names = c("Original Predictions", "Transfromed Predictions")) %>%
+  kable_styling(bootstrap_options = "bordered",
+                full_width = FALSE)
+
+```
+
+```{r advanced sub model evaluation, echo=FALSE}
+model_eval(mod3.2, new_df1) %>% kbl(caption = "Advanced sub model evaluation:", 
+                                  align = "c", col.names = c("Original Predictions", "Transfromed Predictions")) %>%
+  kable_styling(bootstrap_options = "bordered",
+                full_width = FALSE)
+```
+
+As you can see, all the measurement are still low for all the models. That is great. Among the models, the initial sub models preformed the best. Also, all the measurements for the transformed predictions are lower or equal to the original. Therefore the transformation was justified. Because all the model preformed well, I chose to keep all of them.
+
+Let's the predictions:
+
+```{r predictions mod3, echo=FALSE}
+mod3.pred <- abs(predict(mod3, newdata = new_df1))
+mod3.2.pred <- abs(predict(mod3.2, newdata = new_df1))
+mod2.pred <- abs(predict(mod2, newdata = new_df2))
+
+mod3.turnout <- c('הליכוד', 'הציונות הדתית', 'המשותפת', 'ש"ס', 'מרצ', 'רע"ם', 'יש עתיד',
+                  'ימינה', 'העבודה', 'ישראל ביתנו', 'כחול לבן', 'תקווה חדשה')
+
+data.frame(rate=mod3.pred[mod3.pred > 0.0325], party = factor(party_names_2021[-3])) %>%
+  ggplot(aes(reorder(party, -rate), rate, label = scales::percent(round(rate,3)))) + 
+  geom_bar(stat = "identity", fill = "red", color = "black") +
+  geom_text(position = position_dodge(width = 0.9), vjust = -0.5, size = 4) + 
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.6)) +
+  labs(title = "Predicted Party Turnout - Advanced Full Model", x = "", y = "Votes percentage") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+```{r predictiom mod3.2, echo=FALSE}
+data.frame(rate=mod3.2.pred[mod3.2.pred > 0.0325], party = factor(party_names_2021[-3])) %>%
+  ggplot(aes(reorder(party, -rate), rate, label = scales::percent(round(rate,3)))) + 
+  geom_bar(stat = "identity", fill = "dodgerblue", color = "black") +
+  geom_text(position = position_dodge(width = 0.9), vjust = -0.5, size = 4) + 
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.6)) +
+  labs(title = "Predicted Party Turnout - Advanced Sub Model", x = "", y = "Votes percentage") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+As you can see, the advanced models predicted that:
+
+-   The Likud party will get $49\%$ of the votes.
+
+-   Religious Zionist party will get more political power.
+
+-   Meretz and Ra'am will continue to get political power.
+
+-   The UTJ party **will not "pass"** the elections threshold!
+
+The latter is very surprising because the UTJ have a strong base of voters.
+
+Other than that, among the models there is a slight competition between Yamina and Yesh Atid for higher vote percentage.
+
+```{r predictions mod2, echo=FALSE}
+data.frame(rate=mod2.pred[mod2.pred > 0.0325], party = factor(party_names_2021)) %>%
+  ggplot(aes(reorder(party, -rate), rate, label = scales::percent(round(rate, 3)))) + 
+  geom_bar(stat = "identity", fill = "forestgreen", color = "black") +
+  geom_text(position = position_dodge(width = 0.9), vjust = -0.5, size = 3.5) + 
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.25)) +
+  labs(title = "Predicted Party Turnout - Initial Sub Model", x = "", y = "Votes percentage") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+As you can see, the initial sub model predicted more realistic turnout than the other models.
+
+The only surprise here is the decrease of Yisrael Beiteinu's vote percentage.
+
+### Mandates distribution:
+
+In this section, I will try to distribute mandates between the parties according to the aforementioned predictions.
+The distribution was carried out according to the Jefferson's method.
+Note that we need to use the total number of the "eligible voters", instead of the total number of the valid votes.
+That's because we used the "eligible voters" data to make the predictions.
+
+```{r mandate mod3, include=FALSE}
+total_votes_mod3 <- round(sum(elections.2021['בזב']) * mod3.pred[mod3.pred > 0.0325])
+total_seats_measure_mod3 <- sum(total_votes_mod3) / 120 
+mod3_mandates <- floor(total_votes_mod3 / total_seats_measure_mod3)
+mod3_mandates[c('ודעם', 'שס', 'מרצ', 'ב', 'ל')] = mod3_mandates[c('ודעם', 'שס', 'מרצ', 'ב', 'ל')] +1 
+
+
+```
+
+
+```{r mandates mod3.2, include=FALSE}
+total_votes_mod3.2 <- round(sum(elections.2021['בזב']) * mod3.2.pred[mod3.2.pred > 0.0325])
+total_seats_measure_mod3.2 <- sum(total_votes_mod3.2) / 120 
+mod3.2_mandates <- floor(total_votes_mod3.2 / total_seats_measure_mod3.2)
+# sum(floor(total_votes_mod3.2 / total_seats_measure_mod3.2))
+
+# data.frame(m=sort(total_votes_mod3.2 / total_seats_measure_mod3.2, decreasing = T))
+# data.frame(floor(total_votes_mod3.2 / total_seats_measure_mod3.2))
+# data.frame(mod3.2_mandates)
+
+mod3.2_mandates[c('ודעם', 'שס', 'מרצ', 'עם', 'ל')] = mod3.2_mandates[c('ודעם', 'שס', 'מרצ', 'עם', 'ל')] +1
+```
+
+The advanced models' predictions gave the exact same distribution of mandates, so I will refer to only one of them.
+
+```{r mandates mod2, include=FALSE}
+total_votes_mod2 <- round(sum(elections.2021['בזב']) * mod2.pred[mod2.pred > 0.0325])
+total_seats_measure_mod2 <- sum(total_votes_mod2) / 120 
+mod2_mandates <- floor(total_votes_mod2 / total_seats_measure_mod2)
+
+
+data.frame(m=sort(total_votes_mod2 / total_seats_measure_mod2, decreasing = T))
+mod2_mandates[c('מחל', 'שס', 'ב', 'ג', 'ת', 'עם')] = mod2_mandates[c('מחל', 'שס', 'ב', 'ג', 'ת', 'עם')] + 1 
+
+
+```
+
+The following graph show this distribution:
+
+```{r mandates distribution 1, echo=FALSE}
+data.frame(mandates = mod3_mandates) %>% mutate(party = party_names_2021[-3]) %>% 
+  ggplot(aes(reorder(party, -mandates), mandates, label = mandates)) + geom_bar(stat = "identity", fill = "darkorange2") +
+  geom_text(position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  labs(title = "Mandates Distribution - Advanced Models", x = "", y = "Mandates") + ylim(0,40) + theme_bw() +
+   theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+As you can see, the Likud party got 36 mandates while its opposition got 16 mandates at most.
+However, Ra'am and Meretz surprised me as the got stronger (politically) with their 7 and 8 mandates (respectively).
+In this scenario, the Likud can potentially assemble a coalition with Shas and the Religious Zionist party as 
+they would have 63 mandates overall.
+
+But this distribution looks like results of an election poll than a realistic distribution because of the number of mandates that
+"Blue and White" and "New Hope" got. In Israel, a party that passes the election threshold, gets at least 4 mandates.
+Therefore it's doesn't make any sense that "Blue and White" and "New Hope" 3 and 2 mandates respectively. 
+
+```{r mandates distribution 2, echo=FALSE, fig.height=4, fig.width=6}
+data.frame(mandates = mod2_mandates) %>% mutate(party = party_names_2021) %>% 
+  ggplot(aes(reorder(party, -mandates), mandates, label = mandates)) + geom_bar(stat = "identity", fill = "firebrick4") +
+  geom_text(position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  labs(title = "Mandates Distribution - Initial Sub Model", x = "", y = "Mandates") + ylim(0,40) + theme_bw() +
+   theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+As you can see, this distribution is more realistic than the previous one as it reminds of the results of the 2021 elections.
+However, Yisrael Beiteinu surprised me as it got weaker (politically) with only 4 mandates.
+In this scenario, the Likud can't assemble a coalition with only its supporting parties 
+as they would have only 53 mandates overall at most.
+
+## Conclusion
+
+In this essay, I tried to predict the result of the upcoming elections using the previous elections data sets.
+In order to make the predictions, I used the PCA algorithm (for pre-processing the data) and linear regression.
+I built 6 linear models and chose 3 of them predict the vote rate of each party.
+Based on my predictions, I distributed mandates to parties using the Jefferson's method.
+Predictions of only one model (the initial sub model) produced a realistic mandates distribution.
+
+Even though I got nice results, My analysis have some limitations:
+
+Firstly, the model data was small (only 39 observations). This might have affected the predictions.
+Further researches should find a way to deal with low number of observations.
+Moreover, there was no option for split the data for training set and testing set because the low number of observations.
+I solved this problem indirectly. However, further researches should implement properly the "train-test split" in their analysis.
+
+Secondly, maybe linear regression is not best way to predict the vote rate.
+Further researches should examine more regression models for this particular prediction problem.
+
+Finally, the inclusion of the 2020 elections data in the analysis produced bad results.
+Further researches should examine whether it's worthwhile to include it the analysis. 
+Alternatively, they should examine ways to integrate it properly.  
+
+## Discussion
+
+Although we got some results that doesn't make any sense, we can see 2 interesting phenomena from the predictions.
+
+The first one is the fall of UTJ and the rise of the Religious Zionist parties.
+That's seem odd at first. 
+However, the models confirmed the concerns of the UTJ leaders that their potential young voters will eventually vote to the Religious Zionist party.
+With the rising popularity of Itamar Ben Gvir, 
+it's no surprise that we see strengthening of the Religious Zionist at other parties' expense.
+
+The second phenomenon is the fall of Yisrael Beiteinu.
+As we know, Avigdor Liberman was unpopular minister of finance.
+In addition throughout the years, the party has been associated with criminal affairs such as corruption.
+Maybe the the model predicted the Yisrael Beiteinu's fall of grace.
+
+All in all, we got interesting phenomena to analyze further.
+Let's hope that we will have a stable government soon.
+
+## References List
+
+1.  [2021 Israeli legislative election (in English), Wikipedia][R1]
+2.  [Israeli elections 2021 data, Central Elections Committee website][R2]
+3.  [Israeli elections 2020 data, Central Elections Committee website][R3]
+4.  [Jefferson's method, Wikipedia][R4]
+5.  ["Vote stealing" concerns of the UTJ regarding the Religious Zionist party, ICE news website][R5]
+
+
+[R1]: https://en.wikipedia.org/wiki/2021_Israeli_legislative_election
+[R2]: https://votes24.bechirot.gov.il/
+[R3]: https://votes23.bechirot.gov.il/
+[R4]: https://he.wikipedia.org/wiki/%D7%A9%D7%99%D7%98%D7%AA_%D7%92%27%D7%A4%D7%A8%D7%A1%D7%95%D7%9F
+[R5]: https://www.ice.co.il/elections2022/news/article/878977
