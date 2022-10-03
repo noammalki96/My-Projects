@@ -1,0 +1,460 @@
+---
+title: "Greta Thunberg's Tweets - NLP Analysis"
+author: "Noam Malki"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tm)
+library(textclean)
+library(syuzhet)
+library(lubridate)
+library(scales)
+library(reshape2)
+library(wordcloud)
+library(kableExtra)
+```
+
+# Background 
+
+Greta Thunberg is a Swedish environmental activist who is known for challenging world leaders to take immediate action for climate change mitigation. In 2018 (when she is 15 years old), She began the school climate strikes and public speeches for which she has become an internationally recognized climate activist.
+
+![Greta Thunberg in 2020](https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Greta_Thunberg_urges_MEPs_to_show_climate_leadership_%2849618310531%29_%28cropped%29.jpg/330px-Greta_Thunberg_urges_MEPs_to_show_climate_leadership_%2849618310531%29_%28cropped%29.jpg)
+
+Also in 2018, Thunberg opened her Twitter account. 
+Since then, She posts frequently on her Twitter about her protests, speeches and general activism against the climate change.
+
+Today, activists use the social media in order to share their opinions with other easily. 
+Moreover, using these platforms allows them to encourage others to join them in their fight for justice.
+This usage of social media is aligned with concept of participatory culture, coined by Henry Jenkins.
+
+It would be interesting to examine the Greta's tweets because of her activism.
+Even though some researchers suggest qualitative methods to examine the tweets, I took the a quantitative approach for my analysis.
+I did a NLP (Natural Language Processing) analysis of Greta's tweets.
+
+The following essay details the examinations included in the analysis.
+
+# Data
+
+The data that I analyzed, consists of 3212 tweets taken from Greta Thunberg's Twitter account.
+These tweets had been posted from May 2019 to May 2020.
+In addition, the data contain tweets in many languages, including English. 
+I focused on the English tweets. Therefore, my data set consists 2519 tweets.    
+
+```{r get data, include=FALSE}
+greta <- read.csv("C:\\Users\\noamm\\Google Drive\\תרגילים\\ניתוח נתונים עם R\\assessments\\greta.csv")
+eng.greta <- greta %>% filter(lang == 'en')
+```
+
+# Words frequency
+
+This section examines what words are common in Greta's Tweets.
+
+## Cleaning the data
+
+At first, I cleaned the data by removing from the text "stopwords", URLs, Hastags, punctuation marks and more.
+Therefore I got a corpus with only the main words.
+
+```{r creating corpus and clean set, warning=FALSE, include=FALSE}
+removeURL <- function(x) gsub('http[[:alnum:]]*', '', x)
+removeHastags <- function(x) gsub('#\\S+', '', x)
+removeMentions <- function(x) gsub('@\\S+', '', x)
+removeNonEnglish <- function(x) replace_non_ascii(x, "")
+removeSpecial <- function(x) {
+  m  <- gsub("'", '', x) ## Remove Controls and special characters
+  m   <-  gsub('"', '', m) ## Remove Controls and special characters
+  return(m)
+}                 
+
+
+corpus <- iconv(eng.greta$text)
+corpus <- Corpus(VectorSource(corpus))
+corpus <- tm_map(corpus, tolower)
+corpus <- tm_map(corpus, removeHastags)
+corpus <- tm_map(corpus, removeMentions)
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers)
+
+
+cleanset <- tm_map(corpus, removeWords, stopwords('english'))
+cleanset <- tm_map(cleanset, content_transformer(removeURL))
+cleanset <- tm_map(cleanset, replace_non_ascii)
+cleanset <- tm_map(cleanset, removeSpecial)
+cleanset <- tm_map(cleanset, stripWhitespace)
+```
+
+## Common words
+
+The following bar plot shows the most common words Greta's tweets:
+
+```{r common words, echo=FALSE}
+tdm <- as.matrix(TermDocumentMatrix(cleanset))
+words_count <- rowSums(tdm)
+color_palette <- colorRampPalette(c("red","white","blue"))
+
+
+bp <- barplot(head(sort(words_count, decreasing = T), 10), col = color_palette(10), ylim = c(0,1000), las=2,
+        main = "Top 10 Most Common Words in Greta's Tweets", ylab = "Frequency")
+text(bp, head(sort(words_count, decreasing = T), 10)+50, head(sort(words_count, decreasing = T), 10), cex=1)
+```
+
+As you can see, the most common word that Greta use in her tweets is "climate". This is not surprising at all.  
+Thee second most common word in Greta's tweets is "strike". This is also not surprising, considering the fact that Greta got famous by organizing strike in part of her activism. The other words can considered as frequent words that activists use in their posts.
+
+Another way to display the frequencies is by a "word cloud" like this:
+
+```{r word cloud, echo=FALSE}
+sorted_words <- sort(words_count, decreasing = T)
+wordcloud(names(sorted_words), sorted_words, min.freq = 50, random.order = F, colors = brewer.pal(3, 'Set1'),
+          scale = c(5, 0.5))
+```
+
+# Sentiment Analysis:
+
+This section examines the sentiments that arise from Greta's tweets.
+I used the function `get_nrc_sentiment` to classify sentiments for each tweet and create a "sentiments matrix".
+
+
+```{r get sentiments, include=FALSE}
+tweets <- iconv(eng.greta$text, to="utf-8")
+sent_matrix <- get_nrc_sentiment(tweets)
+```
+
+The following list shows the list of sentiments for the function `get_nrc_sentiment`:
+
+```{r sentiments list, echo=FALSE, results='asis'}
+sents <- colnames(sent_matrix)
+cat(paste0(paste0('"', sents), '"'), sep = ', ') 
+```
+
+The following graph shows the prominent sentiments in Greta's tweets: 
+
+```{r sentiments percentage, echo=FALSE}
+data.frame(rate = colSums(sent_matrix) / sum(colSums(sent_matrix)), emotion = names(colSums(sent_matrix))) %>% 
+  ggplot(aes(reorder(emotion, -rate), rate, label=scales::percent(rate))) + geom_bar(stat="identity", fill = "purple") + 
+  scale_y_continuous(labels=scales::percent, limits = c(0,0.25)) +  geom_text(position=position_dodge(width=0.9), vjust=-0.5) +
+  labs(title = "Prominent Sentiments in Greta's Tweets", x = "Sentiment", y = "Percentage") +
+  theme(plot.title = element_text(face="bold", hjust = 0.5))
+```
+
+As you can see, the most prominent sentiment in the tweets is "positive".
+This is surprising considering the fact, that Greta tends to criticize groups for not doing much to climate change mitigation.
+
+It seems that the above graph answers the question: "How many times does each sentiment appear in Greta's tweets?".
+A quick look on the sentiments matrix revealed that each tweet can get multiple sentiments. 
+I wanted to attribute a single sentiment to each tweet, so I could characterize Greta's posting on Twitter.
+The last findings confirm I should take another approach for my examination.
+
+## Sentiment scoring
+
+After a lot of thinking, I had an idea to grade the tweets according to sentiment attributed to them.
+There are 10 sentiments in total, so I need to find five pairs of opposite sentiments and grade them accordingly.
+Meaning, if $a$ is a score of an arbitrary sentiment, so $-a$ is the of the opposite for all five pairs.
+The scores were determined by the sentiments' share of the total number of sentiment appear in the tweets.
+
+Of course, the distributions to pairs have meaning see the [appendix](#appendix) section for further explanation. 
+
+```{r sentiment scoring, include=FALSE}
+grades1 <- c(-10, 5, -5, -2, 1, -1, 2, 10, -20, 20)
+names(grades1) <- colnames(sent_matrix)
+grades2 <- c(-2, 5, -5, -10, 1, -1, 2, 10, -20, 20)
+names(grades2) <- colnames(sent_matrix)
+
+graded_tweets <- eng.greta %>% select(created_at, is_retweet) %>% 
+  mutate(sent_grades1 = as.vector(as.matrix(sent_matrix) %*% grades1),
+         sent_grades2 = as.vector(as.matrix(sent_matrix) %*% grades2), 
+         type = ifelse(is_retweet == T, "Retweet", "Not Retweet"))
+```
+
+I found to sets of pairs for grading because "anger" and "fear" can have multiple interpretations (see [appendix](#appendix)).
+From now on, I will refer to the sets of pairs as "grading methods": "Method 1" and "Method 2".
+
+The scores of "Method 1" are as follows:
+
+```{r method 1 - scores, echo=FALSE}
+grading_df <- data.frame(Sentiments=sents[c(10,5,2,8,4)], Opposites=sents[c(9,6,3,1,7)])
+scores_pos_df <- data.frame(grades1[grades1>0]) %>% rename(`Positive Scores`=grades1.grades1...0.) %>% 
+  mutate(Sentiments=names(grades1[grades1>0]))
+scores_neg_df <- data.frame(grades1[grades1<0]) %>% rename(`Negative Scores`=grades1.grades1...0.) %>% 
+  mutate(Opposites=names(grades1[grades1<0]))
+
+pos1 <- grading_df %>% right_join(scores_pos_df, by = 'Sentiments') %>% select(-Opposites)
+neg1 <- grading_df %>% right_join(scores_neg_df, by = 'Opposites') %>% select(-Sentiments)
+
+cbind(pos1, neg1) %>% kbl() %>% kable_paper("hover", full_width = F) %>%  kable_styling(bootstrap_options = c("bordered"))
+```
+
+The scores of "Method 2" are as follows:
+
+```{r method 2 - scores, echo=FALSE}
+grading_df2 <- data.frame(Sentiments=sents[c(10,5,2,7,4)], Opposites=sents[c(9,6,3,1,8)])
+scores_pos_df2 <- data.frame(grades2[grades2>0]) %>% rename(`Positive Scores`=grades2.grades2...0.) %>% 
+  mutate(Sentiments=names(grades2[grades2>0]))
+scores_neg_df2 <- data.frame(grades2[grades2<0]) %>% rename(`Negative Scores`=grades2.grades2...0.) %>% 
+  mutate(Opposites=names(grades2[grades2<0]))
+
+pos2 <- grading_df2 %>% right_join(scores_pos_df2, by = 'Sentiments') %>% select(-Opposites)
+neg2 <- grading_df2 %>% right_join(scores_neg_df2, by = 'Opposites') %>% select(-Sentiments)
+
+cbind(pos1, neg1) %>% kbl() %>% kable_paper("hover", full_width = F) %>%  kable_styling(bootstrap_options = c("bordered"))
+```
+
+<u>The calculation of the the tweets' scores is as follows:</u>
+
+Denote $A$ as the sentiments matrix, $v$ as an arbitrary grading method and $x$ as the scores vector for all the tweets.
+Therefore:
+$$Av = x$$
+
+Because the similarities of the methods, some questions arise about the distributions of the scores.
+
+## Scores' distributions
+
+This sub section tries to answer the aforementioned questions about the scores' distributions. 
+
+At first, I focused on method 1 and then I focused on method 2. <br>
+Afterward I compared between the methods.
+
+### <u>Method 1:</u>
+
+There are 2 types of tweets in the data set: a "retweet" and not a "retweet".
+The question is: Are the tweets' scores influenced by the tweets' type?
+
+In order to answer this question, let's take look on the scores conditional distributions of the types:
+
+```{r grading 1 - type distribution, echo=FALSE}
+graded_tweets %>% ggplot(aes(sent_grades1, fill = type, color = type)) + geom_density(alpha=0.5) + 
+  labs(x = 'Scores', y = 'Density', fill = 'Tweet type', color = 'Tweet type', 
+       title = "Tweets' Scores Distributed by Type - Grading Method 1") +
+  theme(plot.title = element_text(face = 'bold', hjust = 0.5))
+```
+
+As you can see, they look similar to each other. But are they normally distributed?
+
+This is an important question because there are tests that can help me to answer the aforementioned questions. But these tests assume that the data is normally distributed. 
+
+So, I checked the normality assumption with Shapiro–Wilk test for both types:
+
+```{r grading 1 - type normality, echo=FALSE}
+with(graded_tweets, shapiro.test(sent_grades1[type == "Retweet"]))
+with(graded_tweets, shapiro.test(sent_grades1[type == "Not Retweet"]))
+```
+
+In both cases the p-value turned out to be smaller than $0.05$. Meaning I found an indication that normality of both conditional distributions is violated. In other words, we can't assume normality in both cases.
+
+Fortunately, Mann–Whitney U test is a nonparametric test that can answer the aforementioned question. 
+Before conducting the test, we should check if all the observations are independent of one another. 
+This is **crucial assumption** for Mann–Whitney U test.
+
+Luckily, all the observations represent unique tweet. So, the assumption holds and we can conduct the Mann–Whitney U test.
+
+The test's results are as follows:
+
+```{r grading 1 - distribution comparison, echo=FALSE}
+graded_tweets %>% wilcox.test(sent_grades1~type, data = .)
+```
+
+Because the p-value turned to be greater than $0.05$, I conclude that **there is no indication that the conditional distributions are different**. Therefore the distribution of tweets' "method 1" scores **isn't influenced** by the tweets' type.
+
+### <u>Method 2:</u>
+
+I did same procedure for method 2.
+
+Let's take look on the conditional distributions:
+
+```{r grading 2 - type distribution, echo=FALSE}
+graded_tweets %>% ggplot(aes(sent_grades2, fill = type, color = type)) + geom_density(alpha=0.5) +
+  labs(x = 'Scores', y = 'Density', fill = 'Tweet type', color = 'Tweet type', 
+       title = "Tweets' Scores Distributed by Type - Grading Method 2") +
+  theme(plot.title = element_text(face = 'bold', hjust = 0.5))
+```
+
+They are also look similar.
+
+Let's check the normality with Shapiro–Wilk test:
+
+```{r grading 2 - type normality, echo=FALSE}
+print(with(graded_tweets, shapiro.test(sent_grades2[type == "Retweet"])))
+print(with(graded_tweets, shapiro.test(sent_grades2[type == "Not Retweet"]))) 
+```
+
+P-values turned out to be smaller than $0.05$, so the normality is violated in both cases.
+
+Let's conduct the Mann–Whitney U test:
+
+```{r grading 2 - distribution comparison, echo=FALSE}
+graded_tweets %>% wilcox.test(sent_grades2~type, data = .) 
+```
+
+P-value turned out to be greater than $0.05$, so **there is no indication that the conditional distributions are different**. 
+Therefore the distribution of tweets' "method 2" scores **isn't influenced** by the tweets' type.
+
+### <u>Methods' Comparison:</u>
+
+Because of the similarities between the 2 grading methods, one question arise: <br>
+**Are they not the same distribution?** <br>
+This is important because if they are the same, one method is redundant.
+
+In order to answer this question, let's take look on the grading methods distributions:
+
+```{r grading distributions plot, echo=FALSE}
+stack(graded_tweets[,3:4]) %>% mutate(ind=rep(c("Method 1", "Method 2"), each=2519)) %>% 
+  ggplot(aes(values, fill = ind, color = ind)) + geom_density(alpha=0.4) +
+  labs(x = 'Scores', y = 'Density', fill = 'Grading method', color = 'Grading method', 
+       title = "Tweets' Scores Distributed by Grading Methods") +
+   theme(plot.title = element_text(face = 'bold', hjust = 0.5))
+```
+
+The distributions look almost identical.
+
+I checked the normality of these 2 distributions for the same reason as before:
+
+```{r grading distribution normality, echo=FALSE}
+shapiro.test(graded_tweets$sent_grades1)
+shapiro.test(graded_tweets$sent_grades2)
+```
+
+In both cases, the p-value is smaller than $0.05$. We can't assume that the scores (in both methods) are normally distributed.
+
+Therefore, I conducted the Mann–Whitney U test:
+
+```{r grading distributions comparison, echo=FALSE}
+stack(graded_tweets[,3:4]) %>% mutate(ind=rep(c("Method 1", "Method 2"), each=2519)) %>%
+  rename(scores=values, method=ind) %>% wilcox.test(scores~method, data = .)
+```
+
+The p-value is greater than $0.05$, meaning **there is no indication that the distributions are different**.
+
+In retrospect, the similarities of the methods might have affect the test's results. 
+Maybe scaling the data will help, because the distributions' variance and mean may differ.
+
+Firstly, let's check the normality of the scaled scores:
+
+```{r scaled normality, echo=FALSE}
+shapiro.test(scale(graded_tweets$sent_grades1))
+shapiro.test(scale(graded_tweets$sent_grades2))
+```
+
+In both cases, the p-value is smaller than $0.05$. 
+We can't assume that the **scaled scores** (in both methods) are normally distributed.
+
+Now, let's conduct the Mann–Whitney U test:
+
+```{r scaled man whitney, echo=FALSE}
+stack(data.frame(scaled_grades1=scale(graded_tweets$sent_grades1), scaled_grades2=scale(graded_tweets$sent_grades2))) %>% 
+  mutate(ind=rep(c("Method 1", "Method 2"), each=2519)) %>% 
+  rename(scores=values, method=ind) %>% wilcox.test(scores~method, data = .)
+```
+
+The p-value is smaller than $0.05$, meaning **there is an indication that the distributions are different**. <br>
+It turns out that the grading methods differ regarding their distributions. Therefore, no method is redundant.
+
+## Scores in selected periods
+
+The grading methods turned out to be an interesting way to describe the sentiments of each tweet.
+
+One question remains: Do the sentiments change over time? And how? <br>
+For the question, I focused on 2 periods of time: September 2019 and March 2020.
+September 2019 has chosen because this month was "full of action" as she gave a speech in New York and took part in the UN Climate Action Summit. March 2020 has chosen because the COVID-19 pandemic had started to affect to world. Also, Greta and her father got symptoms of the aforementioned disease in this month. 
+
+To "measure" the change in the sentiments, I used the scores but it wasn't easy.
+There were multiple scores for some days (and none for others) and I needed "shape" the change. I decided to average the scores by each day and method. I addition, I fitted the data 2 local regression models (one of each method) with span equals to $0.15$ (This got me the best predictions).
+
+```{r avergae score setup, message=FALSE, include=FALSE}
+sent_avg_df <- stack(graded_tweets[,3:4]) %>% mutate(ind=rep(c("Method 1", "Method 2"), each = 2519), 
+                                      Date = rep(as.Date(graded_tweets$created_at),2)) %>% 
+  group_by(Date, ind) %>% summarise(avg_score = mean(values))
+
+dates <- unique(sent_avg_df$Date)
+scores1 <- sent_avg_df$avg_score[sent_avg_df$ind=="Method 1"]
+scores2 <- sent_avg_df$avg_score[sent_avg_df$ind=="Method 2"]
+
+mod1 <- loess(scores1~as.numeric(dates), span = 0.15)
+mod2 <- loess(scores2~as.numeric(dates), span = 0.15)
+sep_pred1 <- predict(mod1, newdata=as.numeric(dates[dates >= '2019-09-01' & dates <= '2019-09-30']))
+sep_pred2 <- predict(mod2, newdata=as.numeric(dates[dates >= '2019-09-01' & dates <= '2019-09-30']))
+mar_pred1 <- predict(mod1, newdata=as.numeric(dates[dates >= '2020-03-01' & dates <= '2020-03-31']))
+mar_pred2 <- predict(mod2, newdata=as.numeric(dates[dates >= '2020-03-01' & dates <= '2020-03-31']))
+```
+
+Firstly, let's take a look on September 2019:
+
+```{r average sentiment september, echo=FALSE}
+plot(dates[dates >= '2019-09-01' & dates <= '2019-09-30'], sep_pred1, type = "l",
+     xaxt="n", xlab = "", col = "red", lwd = 2, ylim = c(8, 27),
+     ylab = 'Daily Average Score', main = 'Daily Average Scores in September 2019')
+lines(dates[dates >= '2019-09-01' & dates <= '2019-09-30'], sep_pred2, col = "blue", lwd = 2, lty = "dotted")
+abline(v=as.Date('2019-09-23'), lty = "dashed", col = "green4", lwd = 2)
+abline(v=as.Date('2019-09-20'), lty = "dashed", lwd = 2, col = "goldenrod1")
+axis(1, dates[dates >= '2019-09-01' & dates <= '2019-09-30'], 
+     format(dates[dates >= '2019-09-01' & dates <= '2019-09-30'], "%d.%m.%y"), las = 2, cex.axis=0.7)
+legend("topleft", inset = .05, title="Grading Methods", 
+       c("Method 1", "Method 2"), col = c("red", "blue"), 
+       lty = c("solid", "dotted"), lwd=2)
+legend("left", title="Events", inset = .02,
+       c("Speech in New York", "UN Climate Action Summit"), col = c("goldenrod1", "green4"), 
+       lty = "dashed", lwd=2, cex = 0.8)
+```
+
+As you can see, the daily average scores increase for almost all the days of the month (slowing down only after the UN Climate Action Summit). This means the tweets were quite positive in September 2019. The slowing down may be an expression of disappointment from the summit. 
+
+Now let's take a look on March 2020:
+
+```{r average sentiment march, echo=FALSE}
+march_dates <- c(as.character(dates[dates >= '2020-03-01' & dates <= '2020-03-31']),
+  '2020-03-16', '2020-03-18', '2020-03-19', '2020-03-21', 
+  '2020-03-22', '2020-03-23', '2020-03-29', '2020-03-30')   
+
+plot(dates[dates >= '2020-03-01' & dates <= '2020-03-31'], mar_pred1, type = "l",
+     xaxt="n", xlab = "", col = "red", lwd = 2, ylim = c(14, 28),
+     ylab = 'Daily Average Score', main = 'Daily Average Scores in March 2020')
+lines(dates[dates >= '2020-03-01' & dates <= '2020-03-31'], mar_pred2, col = "blue", lwd = 2,  lty = "dotted")
+abline(v=as.Date('2020-03-23'), lty = "dashed", lwd = 2)
+axis(1, sort(as.Date(march_dates)), 
+     format(sort(as.Date(march_dates)), "%d.%m.%y"), las = 2, cex.axis=0.7)
+legend("topleft", inset = .05, title="Grading Methods", 
+       c("Method 1", "Method 2"), col = c("red", "blue"), 
+       lty = c("solid", "dotted"), lwd=2)
+legend("bottom", title="Events", inset = .02,
+       c("Greta and her father have COVID-19"), col = c("black"), 
+       lty = "dashed", lwd=2, cex = 0.71)
+```
+
+As you can see, the daily average scores increase in the beginning of month. However, the daily average scores start to go down toward the middle of the month, and then decrease quite harshly in the rest of the days. Maybe, the decrease shows the negative influence of the pandemic on Greta. As the pandemic takes its toll on Greta (with the addition of getting infected herself), her tweets become more negative.
+
+One thing is certain: Greta Thunberg is only human, like us!
+
+# Reference List
+
+1. [Greta Thunberg (Hebrew), Wikipedia][R1]
+2. [Greta Thunberg (English), Wikipedia][R2]
+3. [Greta Thunberg's Twitter account][R3]
+4. [Henry Jenkins' website][R4]
+5. [2019 UN Climate Action Summit, Wikipedia][R5]
+6. [Local regression, Wikipedia][R6]
+
+[R1]: https://he.wikipedia.org/wiki/%D7%92%D7%A8%D7%98%D7%94_%D7%98%D7%95%D7%A0%D7%91%D7%A8%D7%99
+[R2]: https://en.wikipedia.org/wiki/Greta_Thunberg
+[R3]: https://twitter.com/GretaThunberg
+[R4]: http://henryjenkins.org/
+[R5]: https://en.wikipedia.org/wiki/2019_UN_Climate_Action_Summit
+[R6]: https://en.wikipedia.org/wiki/Local_regression
+
+# Appendix {#appendix}
+
+The meaning of the grading methods are as follows:
+
+```{r pair sentiments, echo=FALSE}
+grading_df[-c(4,5),] %>% mutate(Explanation = c(rep('Complete opposites',2), 'Anticipation attract us but disgust distance us')) %>% 
+  kbl() %>% kable_paper("hover", full_width = F) %>%  kable_styling(bootstrap_options = c("bordered"))
+```
+
+For the "trust" and "anger" pair: we can say that if you trust someone, it's unlikely to get very angry at him/her (and vice versa).
+
+For the "surprise" and "fear" pair: if you are surprised, you can enjoy it or you can be frightened.
+
+For the "trust" and "fear" pair: fear nullifies trust and vice versa.
+
+For the "surprise" and "anger" pair: Not all of us like surprises. Some people get angry when they are surprised.  
